@@ -3,12 +3,11 @@
 import { useState } from "react";
 
 const CATEGORY_LABELS = { places: "Places", music: "Music", film: "Film & TV" };
-const TYPE_LABELS = { place: "Place", artist: "Music", movie: "Film & TV" };
+const TYPE_LABELS = { place: "Place", artist: "Music", movie: "Film", tv_show: "TV" };
 
 function describeCall(call) {
   if (call.tool === "search_qloo") return `search("${call.args.query}")`;
-  const excluded = call.args.exclude_tag_ids?.length ?? 0;
-  return `insights(type=${call.args.type}, city=${call.args.city}, signals=${call.args.entity_ids.length + call.args.tag_ids.length}${excluded ? `, excluding ${excluded} heritage tags` : ""})`;
+  return `insights(type=${call.args.type}, city=${call.args.city}, signals=${call.args.entity_ids.length + call.args.tag_ids.length}${call.args.exclude_heritage ? ", heritage excluded" : ""})`;
 }
 
 const normalize = name => name.toLowerCase().replace(/[^a-z0-9]/g, "");
