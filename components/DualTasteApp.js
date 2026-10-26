@@ -271,6 +271,7 @@ export default function DualTasteApp({ presets, cities }) {
 
           {result.recommendations.beyond?.length > 0 && (
             <section className="panel beyond">
+              <div className="band ochre" aria-hidden />
               <h2>Beyond the obvious</h2>
               <p className="muted">
                 What people with your taste love in {result.city}, with every Afrobeats, Nollywood and Nigerian-food signal filtered out. The things you&apos;d never think to search for.
