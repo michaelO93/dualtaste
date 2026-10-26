@@ -3,11 +3,79 @@
 import { useState } from "react";
 
 const CATEGORY_LABELS = { places: "Places", music: "Music", film: "Film & TV" };
+const TYPE_LABELS = { place: "Place", artist: "Music", movie: "Film & TV" };
 
 function describeCall(call) {
-  return call.tool === "search_qloo"
-    ? `search("${call.args.query}")`
-    : `insights(type=${call.args.type}, city=${call.args.city}, signals=${call.args.entity_ids.length + call.args.tag_ids.length})`;
+  if (call.tool === "search_qloo") return `search("${call.args.query}")`;
+  const excluded = call.args.exclude_tag_ids?.length ?? 0;
+  return `insights(type=${call.args.type}, city=${call.args.city}, signals=${call.args.entity_ids.length + call.args.tag_ids.length}${excluded ? `, excluding ${excluded} heritage tags` : ""})`;
+}
+
+const normalize = name => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function Card({ item, showType, onEvidence }) {
+  return (
+    <article className="card">
+      {showType && <p className="type-label">{TYPE_LABELS[item.type] ?? item.type}</p>}
+      <div className="card-head">
+        <h3>{item.name}</h3>
+        {item.affinity > 0 && <span className="affinity" title="Qloo affinity score">{Math.round(item.affinity * 100)}</span>}
+      </div>
+      {item.location && <p className="where">{item.location}</p>}
+      <p className="why">{item.why}</p>
+      {item.sharedTags.length > 0 && (
+        <ul className="signals">
+          {item.sharedTags.slice(0, 3).map(t => (
+            <li key={t.name}>
+              {t.name} <span>via {t.seeds.slice(0, 2).join(", ")}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="evidence">
+        Evidence:
+        {item.evidence.map(id => (
+          <button key={id} type="button" onClick={() => onEvidence(id)}>{id}</button>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+// The same model asked the same question with no Qloo access, next to what DualTaste found.
+function Comparison({ result }) {
+  const ours = new Set(Object.values(result.recommendations).flat().map(i => normalize(i.name)));
+  const picks = Object.keys(CATEGORY_LABELS).flatMap(cat => result.baseline[cat] ?? []);
+  const overlap = picks.filter(p => ours.has(normalize(p.name))).length;
+  const checked = picks.filter(p => p.inQloo !== undefined);
+  const missing = checked.filter(p => !p.inQloo).length;
+
+  return (
+    <details className="panel compare">
+      <summary>Compare: the same model without Qloo</summary>
+      <p className="muted">
+        Same question, same Claude model, no taste graph. {overlap} of its {picks.length} picks {overlap === 1 ? "appears" : "appear"} in DualTaste&apos;s results.
+        {checked.length > 0 && ` ${missing} of them could not be found in Qloo at all.`} None come with evidence, affinity scores or anything outside the obvious.
+      </p>
+      <div className="grid">
+        {Object.entries(CATEGORY_LABELS).map(([cat, label]) => (
+          <div key={cat} className="column">
+            <h2>{label}</h2>
+            <ul className="baseline">
+              {(result.baseline[cat] ?? []).map(p => (
+                <li key={p.name}>
+                  <strong>{p.name}</strong>
+                  {ours.has(normalize(p.name)) && <span className="tag-ok">also in DualTaste</span>}
+                  {p.inQloo === false && <span className="tag-warn">not in Qloo</span>}
+                  <p className="muted small">{p.why}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
 }
 
 function TraceList({ calls, focusCall }) {
@@ -104,6 +172,8 @@ export default function DualTasteApp({ presets, cities }) {
 
   function showCall(id) {
     setFocusCall(id);
+    const trace = document.querySelector(".trace");
+    if (trace) trace.open = true;
     document.getElementById(`call-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
@@ -112,9 +182,12 @@ export default function DualTasteApp({ presets, cities }) {
   return (
     <main className="shell">
       <header className="masthead">
-        <p className="eyebrow">Qloo-grounded agent</p>
+        <p className="eyebrow">For Nigerians abroad</p>
         <h1>DualTaste</h1>
-        <p className="lede">Tell it what you love from home. It finds what matches in the city you live in now, and shows the taste-graph evidence for every pick.</p>
+        <p className="lede">
+          Ask a chatbot what to do in London if you love Burna Boy and jollof, and you get the same Afrobeats playlist and the same three &ldquo;African restaurants&rdquo; everyone gets.
+          DualTaste uses Qloo&apos;s taste graph to find what people with your tastes actually love in your city, including things you&apos;d never think to search for, and shows the evidence for every pick.
+        </p>
       </header>
 
       <section className="panel composer" aria-label="Your tastes">
@@ -196,41 +269,38 @@ export default function DualTasteApp({ presets, cities }) {
             {result.mode.plannerNote && <p className="muted small">{result.mode.plannerNote}</p>}
           </section>
 
+          {result.recommendations.beyond?.length > 0 && (
+            <section className="panel beyond">
+              <h2>Beyond the obvious</h2>
+              <p className="muted">
+                What people with your taste love in {result.city}, with every Afrobeats, Nollywood and Nigerian-food signal filtered out. The things you&apos;d never think to search for.
+              </p>
+              <div className="beyond-grid">
+                {result.recommendations.beyond.map(item => (
+                  <Card key={item.entity_id} item={item} showType onEvidence={showCall} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <h2 className="section-title">Close to home</h2>
           <section className="grid">
             {Object.entries(CATEGORY_LABELS).map(([cat, label]) => (
               <div key={cat} className="column">
-                <h2>{label}</h2>
+                <h2>
+                  {label} <span className="muted small">{cat === "film" ? "watch anywhere" : cat === "places" ? `in ${result.city}` : `big with ${result.city} listeners`}</span>
+                </h2>
                 {result.recommendations[cat].length === 0 && <p className="muted empty">Qloo returned nothing strong enough here for {result.city}.</p>}
                 {result.recommendations[cat].map(item => (
-                  <article key={item.entity_id} className="card">
-                    <div className="card-head">
-                      <h3>{item.name}</h3>
-                      {item.affinity > 0 && <span className="affinity" title="Qloo affinity score">{Math.round(item.affinity * 100)}</span>}
-                    </div>
-                    {item.location && <p className="where">{item.location}</p>}
-                    <p className="why">{item.why}</p>
-                    {item.sharedTags.length > 0 && (
-                      <ul className="signals">
-                        {item.sharedTags.slice(0, 3).map(t => (
-                          <li key={t.name}>
-                            {t.name} <span>via {t.seeds.slice(0, 2).join(", ")}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <div className="evidence">
-                      Evidence:
-                      {item.evidence.map(id => (
-                        <button key={id} type="button" onClick={() => showCall(id)}>{id}</button>
-                      ))}
-                    </div>
-                  </article>
+                  <Card key={item.entity_id} item={item} onEvidence={showCall} />
                 ))}
               </div>
             ))}
           </section>
 
-          <details className="panel trace" open>
+          {result.baseline && <Comparison result={result} />}
+
+          <details className="panel trace">
             <summary>Agent trace: every Qloo call</summary>
             <TraceList calls={result.trace} focusCall={focusCall} />
           </details>

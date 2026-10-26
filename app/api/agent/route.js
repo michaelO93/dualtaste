@@ -1,6 +1,7 @@
 import { runAgent } from "../../../lib/agent";
 
-export const maxDuration = 60;
+// Claude runs usually take 20-45s; leave headroom so a slow run isn't cut off mid-stream.
+export const maxDuration = 120;
 
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
